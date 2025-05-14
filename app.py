@@ -7,16 +7,16 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 
-st.set_page_config(page_title="Stock Price Predictor", layout="centered")
-st.title("📈 LSTM Stock Price Prediction")
+# Page config
+st.set_page_config(page_title="Stock LSTM Predictor", layout="centered")
+st.title("📈 Stock Price Prediction using LSTM")
 
-# Sidebar Inputs
-ticker = st.sidebar.text_input("Enter stock ticker", value="AAPL")
+# Sidebar
+ticker = st.sidebar.text_input("Enter Stock Ticker", value="AAPL")
 start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2020-01-01"))
 end_date = st.sidebar.date_input("End Date", pd.to_datetime("2024-12-31"))
-predict_btn = st.sidebar.button("Run Prediction")
+run = st.sidebar.button("Predict")
 
-# Function to create sequences
 def create_sequences(data, time_step=60):
     X, y = [], []
     for i in range(time_step, len(data)):
@@ -24,15 +24,16 @@ def create_sequences(data, time_step=60):
         y.append(data[i, 0])
     return np.array(X), np.array(y)
 
-# Main logic
-if predict_btn:
+if run:
     try:
+        # Download stock data
         df = yf.download(ticker, start=start_date, end=end_date)
-        if df.empty:
-            st.error("No data found. Check ticker or date range.")
+
+        if df.empty or 'Close' not in df:
+            st.error("⚠️ Data fetch failed. Try a different ticker or date range.")
         else:
-            data = df[['Close']].dropna()
-            st.subheader(f"📊 Closing Prices for {ticker}")
+            st.success(f"✅ Data fetched successfully for {ticker}")
+            data = df[['Close']]
             st.line_chart(data)
 
             # Scale data
@@ -44,41 +45,41 @@ if predict_btn:
             train_data = scaled_data[:train_size]
             test_data = scaled_data[train_size:]
 
-            if len(train_data) < 61 or len(test_data) < 61:
-                st.warning("Not enough data to train. Expand the date range.")
+            # Handle small datasets
+            if len(train_data) < 120:
+                st.warning("⚠️ Not enough data to train the model. Use a longer date range.")
             else:
-                X_train, y_train = create_sequences(train_data)
-                X_test, y_test = create_sequences(test_data)
-
+                # Sequences
+                X_train, y_train = create_sequences(train_data, 60)
+                X_test, y_test = create_sequences(test_data, 60)
                 X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
                 X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
 
                 # Build model
                 model = Sequential()
                 model.add(LSTM(50, return_sequences=True, input_shape=(60, 1)))
-                model.add(LSTM(50, return_sequences=False))
+                model.add(LSTM(50))
                 model.add(Dense(25))
                 model.add(Dense(1))
                 model.compile(optimizer='adam', loss='mean_squared_error')
+
+                # Train
                 model.fit(X_train, y_train, epochs=5, batch_size=32, verbose=0)
 
                 # Predict
                 predictions = model.predict(X_test)
                 predictions = scaler.inverse_transform(predictions)
 
-                # Prepare DataFrame
-                valid = data[train_size:]
-                valid = valid.iloc[60:].copy()  # adjust for 60-timestep
-                valid["Predictions"] = predictions
+                # Prepare result
+                valid = data[train_size:].copy().iloc[60:]
+                valid['Predictions'] = predictions
 
                 # Plot
-                st.subheader("📈 Real vs Predicted Closing Prices")
+                st.subheader("📊 Real vs Predicted")
                 fig, ax = plt.subplots(figsize=(14, 6))
                 ax.plot(data['Close'], label='All Close Prices')
-                ax.plot(valid['Close'], label='Real')
+                ax.plot(valid['Close'], label='Actual')
                 ax.plot(valid['Predictions'], label='Predicted')
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Price (USD)")
                 ax.legend()
                 st.pyplot(fig)
 
